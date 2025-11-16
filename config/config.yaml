@@ -1,0 +1,344 @@
+# Financial Report Intelligence System Configuration
+
+# Application Settings
+app:
+  name: "Financial Report Intelligence"
+  version: "1.0.0"
+  environment: "production"  # development, staging, production
+  debug: false
+  log_level: "INFO"
+
+# API Configuration
+api:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 4
+  reload: false
+  cors_origins:
+    - "http://localhost:3000"
+    - "http://localhost:8000"
+  rate_limit:
+    enabled: true
+    requests_per_minute: 60
+
+# Database Configuration
+databases:
+  # Vector Database (Weaviate)
+  vector_db:
+    provider: "weaviate"
+    host: "weaviate"
+    port: 8080
+    api_key: "finrag-api-key"
+    timeout: 30
+    index_name: "FinancialDocuments"
+    embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_dimension: 384
+
+  # Graph Database (Neo4j)
+  graph_db:
+    provider: "neo4j"
+    uri: "bolt://neo4j:7687"
+    username: "neo4j"
+    password: "finrag_password"
+    database: "neo4j"
+    max_connection_lifetime: 3600
+    max_connection_pool_size: 50
+
+  # Relational Database (PostgreSQL)
+  relational_db:
+    provider: "postgresql"
+    host: "postgres"
+    port: 5432
+    database: "finrag_db"
+    username: "finrag"
+    password: "finrag_postgres_pass"
+    pool_size: 10
+    max_overflow: 20
+
+  # Cache (Redis)
+  cache:
+    provider: "redis"
+    host: "redis"
+    port: 6379
+    password: "finrag_redis_pass"
+    db: 0
+    ttl: 3600
+    max_connections: 50
+
+# Message Broker Configuration
+message_broker:
+  provider: "kafka"
+  brokers:
+    - "kafka:9092"
+  topics:
+    sec_filings: "sec-filings"
+    earnings_calls: "earnings-calls"
+    market_data: "market-data"
+    news: "financial-news"
+  consumer_group: "finrag-consumers"
+  auto_offset_reset: "earliest"
+
+# Data Processing Configuration
+data_processing:
+  # Document Processor
+  document_processor:
+    chunk_size: 512
+    chunk_overlap: 50
+    max_chunk_length: 2000
+    preserve_context: true
+
+  # Table Extraction
+  table_extractor:
+    engine: "camelot"  # camelot, tabula
+    flavor: "stream"
+    edge_tol: 50
+
+  # OCR Settings
+  ocr:
+    engine: "tesseract"
+    languages: ["eng"]
+    dpi: 300
+
+# RAG Configuration
+rag:
+  # Retrieval Settings
+  retrieval:
+    default_k: 20
+    max_k: 100
+    min_score: 0.5
+    use_hybrid: true
+    dense_weight: 0.6
+    graph_weight: 0.4
+
+  # Reranking
+  reranking:
+    enabled: true
+    model: "cross-encoder/ms-marco-MiniLM-L-12-v2"
+    top_k: 10
+
+  # Temporal Settings
+  temporal:
+    enable_temporal_filtering: true
+    decay_factor: 0.95
+    recency_boost: 1.2
+
+# Generation Configuration
+generation:
+  # LLM Settings
+  llm:
+    provider: "openai"  # openai, anthropic, local
+    model: "gpt-4-turbo-preview"
+    api_key: "${OPENAI_API_KEY}"
+    temperature: 0.3
+    max_tokens: 2048
+    top_p: 0.9
+
+  # Citation Settings
+  citation:
+    enabled: true
+    min_credibility: 0.7
+    include_excerpts: true
+    max_excerpt_length: 200
+
+  # Hallucination Detection
+  hallucination_detection:
+    enabled: true
+    threshold: 0.2
+    apply_corrective_rag: true
+
+# Financial Data Sources
+data_sources:
+  # SEC EDGAR
+  sec_edgar:
+    enabled: true
+    base_url: "https://data.sec.gov"
+    user_agent: "Financial RAG System contact@example.com"
+    rate_limit_delay: 0.1
+    filing_types:
+      - "10-K"
+      - "10-Q"
+      - "8-K"
+      - "DEF 14A"
+
+  # Market Data
+  market_data:
+    provider: "yfinance"
+    api_key: "${MARKET_DATA_API_KEY}"
+    update_frequency: "1h"
+
+  # News Feeds
+  news:
+    providers:
+      - "newsapi"
+      - "alpha_vantage"
+    api_keys:
+      newsapi: "${NEWSAPI_KEY}"
+      alpha_vantage: "${ALPHA_VANTAGE_KEY}"
+    update_frequency: "5m"
+
+# Compliance Configuration
+compliance:
+  jurisdictions:
+    - "US"
+    - "EU"
+
+  regulations:
+    sox:
+      enabled: true
+      strict_mode: false
+    sec:
+      enabled: true
+      check_timeliness: true
+    mifid2:
+      enabled: false
+    basel3:
+      enabled: false
+
+  risk_assessment:
+    enabled: true
+    weights:
+      credit_risk: 0.25
+      market_risk: 0.25
+      operational_risk: 0.20
+      liquidity_risk: 0.20
+      regulatory_risk: 0.10
+
+# Temporal Analysis Configuration
+temporal_analysis:
+  time_series:
+    model: "prophet"  # prophet, arima, lstm
+    forecast_horizons:
+      - 7
+      - 30
+      - 90
+    confidence_level: 0.95
+
+  trend_detection:
+    min_data_points: 3
+    significance_threshold: 0.05
+
+  anomaly_detection:
+    method: "zscore"  # zscore, isolation_forest
+    sensitivity: 0.95
+    z_threshold: 3.0
+
+# Monitoring and Logging
+monitoring:
+  # Prometheus
+  prometheus:
+    enabled: true
+    port: 9090
+    scrape_interval: "15s"
+
+  # Logging
+  logging:
+    level: "INFO"
+    format: "json"
+    output: "stdout"
+    file:
+      enabled: true
+      path: "/app/logs/finrag.log"
+      max_size: "100MB"
+      backup_count: 5
+
+  # Metrics
+  metrics:
+    enabled: true
+    track_latency: true
+    track_accuracy: true
+    track_resource_usage: true
+
+  # Alerts
+  alerts:
+    enabled: true
+    channels:
+      - "email"
+      - "slack"
+    email:
+      smtp_host: "${SMTP_HOST}"
+      smtp_port: 587
+      from_address: "alerts@finrag.example.com"
+      to_addresses:
+        - "admin@example.com"
+
+# Security Configuration
+security:
+  # Authentication
+  authentication:
+    enabled: true
+    method: "oauth2"  # oauth2, api_key, jwt
+    jwt_secret: "${JWT_SECRET_KEY}"
+    jwt_algorithm: "HS256"
+    access_token_expire_minutes: 30
+
+  # Authorization
+  authorization:
+    enabled: true
+    role_based: true
+
+  # Encryption
+  encryption:
+    enabled: true
+    algorithm: "AES-256-GCM"
+
+  # Audit Logging
+  audit:
+    enabled: true
+    log_all_requests: true
+    log_data_access: true
+
+# Performance Configuration
+performance:
+  # Caching
+  caching:
+    enabled: true
+    ttl: 3600
+    max_size: "10GB"
+
+  # Connection Pooling
+  connection_pooling:
+    enabled: true
+    min_size: 5
+    max_size: 50
+
+  # Query Optimization
+  query_optimization:
+    enabled: true
+    use_parallel_retrieval: true
+    max_workers: 10
+    batch_size: 100
+
+# Deployment Configuration
+deployment:
+  replicas: 3
+  resources:
+    api:
+      cpu: "2"
+      memory: "4Gi"
+      gpu: 0
+    processor:
+      cpu: "4"
+      memory: "8Gi"
+      gpu: 0
+    generation:
+      cpu: "4"
+      memory: "16Gi"
+      gpu: 1
+
+  scaling:
+    auto_scaling: true
+    min_replicas: 2
+    max_replicas: 10
+    target_cpu_utilization: 70
+
+  health_checks:
+    liveness_probe:
+      initial_delay: 30
+      period: 10
+      timeout: 5
+      failure_threshold: 3
+    readiness_probe:
+      initial_delay: 10
+      period: 5
+      timeout: 3
+      failure_threshold: 3
