@@ -1,0 +1,70 @@
+# Lightweight Edge Deployment Dockerfile
+# Optimized for minimal footprint and fast startup
+
+FROM python:3.11-slim as builder
+
+# Set working directory
+WORKDIR /build
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+
+# Create minimal requirements for edge
+RUN cat requirements.txt | grep -E "^(fastapi|uvicorn|pydantic|aiohttp|redis|python-dotenv|loguru|prometheus-client)" > requirements.edge.txt && \
+    echo "numpy==1.26.2" >> requirements.edge.txt && \
+    echo "sentence-transformers==2.2.2" >> requirements.edge.txt
+
+# Install Python dependencies
+RUN pip install --no-cache-dir --user -r requirements.edge.txt
+
+# Runtime stage
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    EDGE_MODE=1 \
+    CACHE_SIZE_MB=500
+
+# Create non-root user
+RUN useradd -m -u 1000 -s /bin/bash edgeuser
+
+# Set working directory
+WORKDIR /app
+
+# Copy Python dependencies from builder
+COPY --from=builder /root/.local /home/edgeuser/.local
+
+# Copy application code (minimal subset for edge)
+COPY --chown=edgeuser:edgeuser src/edge/ /app/src/edge/
+COPY --chown=edgeuser:edgeuser src/utils/helpers.py /app/src/utils/helpers.py
+COPY --chown=edgeuser:edgeuser src/retrieval/tmm_hybrid_rag.py /app/src/retrieval/tmm_hybrid_rag.py
+COPY --chown=edgeuser:edgeuser src/__init__.py /app/src/__init__.py
+COPY --chown=edgeuser:edgeuser src/utils/__init__.py /app/src/utils/__init__.py
+COPY --chown=edgeuser:edgeuser src/edge/__init__.py /app/src/edge/__init__.py
+
+# Create necessary directories
+RUN mkdir -p /app/data /app/logs /app/cache && \
+    chown -R edgeuser:edgeuser /app
+
+# Switch to non-root user
+USER edgeuser
+
+# Update PATH
+ENV PATH=/home/edgeuser/.local/bin:$PATH
+
+# Expose port
+EXPOSE 8001
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/health').read()" || exit 1
+
+# Run edge server
+CMD ["python", "-m", "uvicorn", "src.edge.edge_server:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "2"]

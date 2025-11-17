@@ -1,0 +1,184 @@
+# Docker Compose for Edge Deployment Testing
+# Run lightweight edge nodes locally
+
+version: '3.8'
+
+services:
+  # Central API (simplified for edge testing)
+  central-api:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: finrag-central-api
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+    networks:
+      - edge-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Edge Node - US East
+  edge-us-east:
+    build:
+      context: ../..
+      dockerfile: deploy/edge/Dockerfile.edge
+    container_name: finrag-edge-us-east
+    ports:
+      - "8001:8001"
+    environment:
+      - NODE_ID=edge-us-east-1
+      - REGION=us-east
+      - CENTRAL_ENDPOINT=http://central-api:8000
+      - CACHE_SIZE_MB=500
+      - LOG_LEVEL=INFO
+    depends_on:
+      - central-api
+    networks:
+      - edge-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Edge Node - EU West
+  edge-eu-west:
+    build:
+      context: ../..
+      dockerfile: deploy/edge/Dockerfile.edge
+    container_name: finrag-edge-eu-west
+    ports:
+      - "8002:8001"
+    environment:
+      - NODE_ID=edge-eu-west-1
+      - REGION=eu-west
+      - CENTRAL_ENDPOINT=http://central-api:8000
+      - CACHE_SIZE_MB=500
+      - LOG_LEVEL=INFO
+    depends_on:
+      - central-api
+    networks:
+      - edge-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Edge Node - Asia Pacific
+  edge-asia-pac:
+    build:
+      context: ../..
+      dockerfile: deploy/edge/Dockerfile.edge
+    container_name: finrag-edge-asia-pac
+    ports:
+      - "8003:8001"
+    environment:
+      - NODE_ID=edge-asia-pac-1
+      - REGION=asia-pac
+      - CENTRAL_ENDPOINT=http://central-api:8000
+      - CACHE_SIZE_MB=500
+      - LOG_LEVEL=INFO
+    depends_on:
+      - central-api
+    networks:
+      - edge-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Redis for shared caching (lightweight)
+  redis-edge:
+    image: redis:7-alpine
+    container_name: finrag-redis-edge
+    ports:
+      - "6380:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    networks:
+      - edge-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Prometheus for edge monitoring
+  prometheus-edge:
+    image: prom/prometheus:latest
+    container_name: finrag-prometheus-edge
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./prometheus-edge.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-edge-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=7d'
+    networks:
+      - edge-network
+
+  # Grafana for edge visualization
+  grafana-edge:
+    image: grafana/grafana:latest
+    container_name: finrag-grafana-edge
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=edge_admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-edge-data:/var/lib/grafana
+    depends_on:
+      - prometheus-edge
+    networks:
+      - edge-network
+
+networks:
+  edge-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16
+
+volumes:
+  prometheus-edge-data:
+    driver: local
+  grafana-edge-data:
+    driver: local

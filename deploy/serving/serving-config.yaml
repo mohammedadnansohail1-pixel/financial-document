@@ -1,0 +1,356 @@
+# Kubernetes Configuration for Model Serving
+# Production-ready model serving with auto-scaling
+
+---
+# ConfigMap for serving configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serving-config
+  namespace: finrag
+data:
+  MAX_CACHED_MODELS: "5"
+  MAX_MEMORY_MB: "8000"
+  DEVICE: "cpu"
+  LOG_LEVEL: "INFO"
+  BATCH_SIZE_LIMIT: "128"
+
+---
+# Model Serving Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-serving
+  namespace: finrag
+  labels:
+    app: model-serving
+    component: inference
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: model-serving
+  template:
+    metadata:
+      labels:
+        app: model-serving
+        component: inference
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8002"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: model-server
+          image: finrag/model-serving:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8002
+              protocol: TCP
+          env:
+            - name: MAX_CACHED_MODELS
+              valueFrom:
+                configMapKeyRef:
+                  name: serving-config
+                  key: MAX_CACHED_MODELS
+            - name: MAX_MEMORY_MB
+              valueFrom:
+                configMapKeyRef:
+                  name: serving-config
+                  key: MAX_MEMORY_MB
+            - name: DEVICE
+              valueFrom:
+                configMapKeyRef:
+                  name: serving-config
+                  key: DEVICE
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: serving-config
+                  key: LOG_LEVEL
+          resources:
+            requests:
+              cpu: "2000m"
+              memory: "8Gi"
+            limits:
+              cpu: "4000m"
+              memory: "16Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8002
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8002
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: model-cache
+              mountPath: /app/.cache
+            - name: logs
+              mountPath: /app/logs
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: model-cache-pvc
+        - name: logs
+          emptyDir:
+            sizeLimit: 1Gi
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - model-serving
+                topologyKey: kubernetes.io/hostname
+
+---
+# Model Serving Deployment (GPU variant)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-serving-gpu
+  namespace: finrag
+  labels:
+    app: model-serving
+    component: inference
+    accelerator: gpu
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: model-serving
+      accelerator: gpu
+  template:
+    metadata:
+      labels:
+        app: model-serving
+        component: inference
+        accelerator: gpu
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8002"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: model-server
+          image: finrag/model-serving:latest-gpu
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8002
+              protocol: TCP
+          env:
+            - name: MAX_CACHED_MODELS
+              value: "8"
+            - name: MAX_MEMORY_MB
+              value: "16000"
+            - name: DEVICE
+              value: "cuda"
+            - name: LOG_LEVEL
+              value: "INFO"
+          resources:
+            requests:
+              cpu: "4000m"
+              memory: "16Gi"
+              nvidia.com/gpu: 1
+            limits:
+              cpu: "8000m"
+              memory: "32Gi"
+              nvidia.com/gpu: 1
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8002
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8002
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: model-cache
+              mountPath: /app/.cache
+            - name: logs
+              mountPath: /app/logs
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: model-cache-gpu-pvc
+        - name: logs
+          emptyDir:
+            sizeLimit: 2Gi
+      nodeSelector:
+        accelerator: nvidia-gpu
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+
+---
+# PersistentVolumeClaim for model cache (CPU)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: model-cache-pvc
+  namespace: finrag
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: standard
+
+---
+# PersistentVolumeClaim for model cache (GPU)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: model-cache-gpu-pvc
+  namespace: finrag
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: fast-ssd
+
+---
+# Service for model serving
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-serving
+  namespace: finrag
+  labels:
+    app: model-serving
+spec:
+  type: ClusterIP
+  selector:
+    app: model-serving
+  ports:
+    - name: http
+      port: 8002
+      targetPort: 8002
+      protocol: TCP
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 300
+
+---
+# Horizontal Pod Autoscaler for CPU serving
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: model-serving-hpa
+  namespace: finrag
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: model-serving
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75
+    - type: Pods
+      pods:
+        metric:
+          name: inference_queue_depth
+        target:
+          type: AverageValue
+          averageValue: "50"
+
+---
+# Horizontal Pod Autoscaler for GPU serving
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: model-serving-gpu-hpa
+  namespace: finrag
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: model-serving-gpu
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Pods
+      pods:
+        metric:
+          name: gpu_utilization
+        target:
+          type: AverageValue
+          averageValue: "80"
+
+---
+# PodDisruptionBudget for model serving
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: model-serving-pdb
+  namespace: finrag
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: model-serving
+
+---
+# ServiceMonitor for Prometheus
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: model-serving-metrics
+  namespace: finrag
+  labels:
+    app: model-serving
+spec:
+  selector:
+    matchLabels:
+      app: model-serving
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s

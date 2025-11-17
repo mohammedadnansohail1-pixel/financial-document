@@ -1,0 +1,573 @@
+# Kubernetes Configuration for Edge Deployment
+# Lightweight edge nodes for distributed processing
+
+---
+# Namespace for edge nodes
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: finrag-edge
+  labels:
+    name: finrag-edge
+    environment: production
+
+---
+# ConfigMap for edge configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: edge-config
+  namespace: finrag-edge
+data:
+  CENTRAL_ENDPOINT: "http://finrag-api.finrag.svc.cluster.local:8000"
+  CACHE_SIZE_MB: "500"
+  LOG_LEVEL: "INFO"
+  SYNC_INTERVAL_SECONDS: "300"
+  HEALTH_CHECK_INTERVAL_SECONDS: "60"
+
+---
+# Secret for edge authentication (example)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: edge-secrets
+  namespace: finrag-edge
+type: Opaque
+stringData:
+  API_KEY: "edge-api-key-placeholder"
+  JWT_SECRET: "edge-jwt-secret-placeholder"
+
+---
+# Edge Node Deployment - US East
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge-us-east
+  namespace: finrag-edge
+  labels:
+    app: finrag-edge
+    region: us-east
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: finrag-edge
+      region: us-east
+  template:
+    metadata:
+      labels:
+        app: finrag-edge
+        region: us-east
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: edge-server
+          image: finrag/edge:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8001
+              protocol: TCP
+          env:
+            - name: NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: REGION
+              value: "us-east"
+            - name: CENTRAL_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: edge-config
+                  key: CENTRAL_ENDPOINT
+            - name: CACHE_SIZE_MB
+              valueFrom:
+                configMapKeyRef:
+                  name: edge-config
+                  key: CACHE_SIZE_MB
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: edge-config
+                  key: LOG_LEVEL
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: edge-secrets
+                  key: API_KEY
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: cache
+              mountPath: /app/cache
+            - name: logs
+              mountPath: /app/logs
+      volumes:
+        - name: cache
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: logs
+          emptyDir:
+            sizeLimit: 500Mi
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - finrag-edge
+                topologyKey: kubernetes.io/hostname
+
+---
+# Edge Node Deployment - EU West
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge-eu-west
+  namespace: finrag-edge
+  labels:
+    app: finrag-edge
+    region: eu-west
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: finrag-edge
+      region: eu-west
+  template:
+    metadata:
+      labels:
+        app: finrag-edge
+        region: eu-west
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: edge-server
+          image: finrag/edge:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8001
+              protocol: TCP
+          env:
+            - name: NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: REGION
+              value: "eu-west"
+            - name: CENTRAL_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: edge-config
+                  key: CENTRAL_ENDPOINT
+            - name: CACHE_SIZE_MB
+              valueFrom:
+                configMapKeyRef:
+                  name: edge-config
+                  key: CACHE_SIZE_MB
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: edge-config
+                  key: LOG_LEVEL
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: cache
+              mountPath: /app/cache
+            - name: logs
+              mountPath: /app/logs
+      volumes:
+        - name: cache
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: logs
+          emptyDir:
+            sizeLimit: 500Mi
+
+---
+# Edge Node Deployment - Asia Pacific
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge-asia-pac
+  namespace: finrag-edge
+  labels:
+    app: finrag-edge
+    region: asia-pac
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: finrag-edge
+      region: asia-pac
+  template:
+    metadata:
+      labels:
+        app: finrag-edge
+        region: asia-pac
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: edge-server
+          image: finrag/edge:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8001
+              protocol: TCP
+          env:
+            - name: NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: REGION
+              value: "asia-pac"
+            - name: CENTRAL_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: edge-config
+                  key: CENTRAL_ENDPOINT
+            - name: CACHE_SIZE_MB
+              valueFrom:
+                configMapKeyRef:
+                  name: edge-config
+                  key: CACHE_SIZE_MB
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: edge-config
+                  key: LOG_LEVEL
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: cache
+              mountPath: /app/cache
+            - name: logs
+              mountPath: /app/logs
+      volumes:
+        - name: cache
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: logs
+          emptyDir:
+            sizeLimit: 500Mi
+
+---
+# Service for US East edge nodes
+apiVersion: v1
+kind: Service
+metadata:
+  name: edge-us-east
+  namespace: finrag-edge
+  labels:
+    app: finrag-edge
+    region: us-east
+spec:
+  type: ClusterIP
+  selector:
+    app: finrag-edge
+    region: us-east
+  ports:
+    - name: http
+      port: 8001
+      targetPort: 8001
+      protocol: TCP
+  sessionAffinity: ClientIP
+
+---
+# Service for EU West edge nodes
+apiVersion: v1
+kind: Service
+metadata:
+  name: edge-eu-west
+  namespace: finrag-edge
+  labels:
+    app: finrag-edge
+    region: eu-west
+spec:
+  type: ClusterIP
+  selector:
+    app: finrag-edge
+    region: eu-west
+  ports:
+    - name: http
+      port: 8001
+      targetPort: 8001
+      protocol: TCP
+  sessionAffinity: ClientIP
+
+---
+# Service for Asia Pacific edge nodes
+apiVersion: v1
+kind: Service
+metadata:
+  name: edge-asia-pac
+  namespace: finrag-edge
+  labels:
+    app: finrag-edge
+    region: asia-pac
+spec:
+  type: ClusterIP
+  selector:
+    app: finrag-edge
+    region: asia-pac
+  ports:
+    - name: http
+      port: 8001
+      targetPort: 8001
+      protocol: TCP
+  sessionAffinity: ClientIP
+
+---
+# Horizontal Pod Autoscaler for US East
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: edge-us-east-hpa
+  namespace: finrag-edge
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: edge-us-east
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+---
+# Horizontal Pod Autoscaler for EU West
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: edge-eu-west-hpa
+  namespace: finrag-edge
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: edge-eu-west
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+---
+# Horizontal Pod Autoscaler for Asia Pacific
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: edge-asia-pac-hpa
+  namespace: finrag-edge
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: edge-asia-pac
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+---
+# Network Policy for edge nodes
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: edge-network-policy
+  namespace: finrag-edge
+spec:
+  podSelector:
+    matchLabels:
+      app: finrag-edge
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from central cluster
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: finrag
+        - podSelector:
+            matchLabels:
+              app: finrag-api
+      ports:
+        - protocol: TCP
+          port: 8001
+    # Allow traffic from same namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: finrag-edge
+      ports:
+        - protocol: TCP
+          port: 8001
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow connection to central cluster
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: finrag
+      ports:
+        - protocol: TCP
+          port: 8000
+    # Allow external APIs (for data fetching)
+    - to:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+
+---
+# ServiceMonitor for Prometheus (if using Prometheus Operator)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: edge-metrics
+  namespace: finrag-edge
+  labels:
+    app: finrag-edge
+spec:
+  selector:
+    matchLabels:
+      app: finrag-edge
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+
+---
+# PodDisruptionBudget for edge nodes
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: edge-pdb
+  namespace: finrag-edge
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: finrag-edge

@@ -1,0 +1,48 @@
+# Prometheus Configuration for Edge Monitoring
+
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  scrape_timeout: 10s
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+# Scrape configurations
+scrape_configs:
+  # Edge nodes
+  - job_name: 'edge-nodes'
+    static_configs:
+      - targets:
+          - 'edge-us-east:8001'
+          - 'edge-eu-west:8001'
+          - 'edge-asia-pac:8001'
+        labels:
+          service: 'edge-server'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  # Central API
+  - job_name: 'central-api'
+    static_configs:
+      - targets: ['central-api:8000']
+        labels:
+          service: 'central-api'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  # Redis
+  - job_name: 'redis-edge'
+    static_configs:
+      - targets: ['redis-edge:6379']
+        labels:
+          service: 'redis'
+    scrape_interval: 30s
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

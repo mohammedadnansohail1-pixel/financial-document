@@ -1,0 +1,40 @@
+# Prometheus Configuration for Model Serving
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+
+# Scrape configurations
+scrape_configs:
+  # Model serving instances
+  - job_name: 'model-serving'
+    static_configs:
+      - targets:
+          - 'model-serving:8002'
+          - 'model-serving-2:8002'
+        labels:
+          service: 'model-serving'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Load balancer
+  - job_name: 'load-balancer'
+    static_configs:
+      - targets: ['load-balancer:80']
+        labels:
+          service: 'nginx'
+    scrape_interval: 30s
+
+  # Redis
+  - job_name: 'redis-serving'
+    static_configs:
+      - targets: ['redis-serving:6379']
+        labels:
+          service: 'redis'
+    scrape_interval: 30s
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

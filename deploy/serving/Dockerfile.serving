@@ -1,0 +1,69 @@
+# Model Serving Dockerfile
+# Optimized for ML model serving with PyTorch and Transformers
+
+FROM python:3.11-slim as builder
+
+# Set working directory
+WORKDIR /build
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+
+# Create serving-specific requirements
+RUN cat requirements.txt | grep -E "^(fastapi|uvicorn|pydantic|torch|transformers|sentence-transformers|numpy|python-dotenv|loguru|prometheus-client)" > requirements.serving.txt
+
+# Install Python dependencies
+RUN pip install --no-cache-dir --user -r requirements.serving.txt
+
+# Runtime stage
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    TRANSFORMERS_CACHE=/app/.cache/transformers \
+    HF_HOME=/app/.cache/huggingface \
+    MAX_CACHED_MODELS=5 \
+    MAX_MEMORY_MB=8000 \
+    DEVICE=cpu
+
+# Create non-root user
+RUN useradd -m -u 1000 -s /bin/bash modeluser
+
+# Set working directory
+WORKDIR /app
+
+# Copy Python dependencies from builder
+COPY --from=builder /root/.local /home/modeluser/.local
+
+# Copy application code
+COPY --chown=modeluser:modeluser src/serving/ /app/src/serving/
+COPY --chown=modeluser:modeluser src/utils/helpers.py /app/src/utils/helpers.py
+COPY --chown=modeluser:modeluser src/__init__.py /app/src/__init__.py
+COPY --chown=modeluser:modeluser src/utils/__init__.py /app/src/utils/__init__.py
+
+# Create cache and model directories
+RUN mkdir -p /app/.cache/transformers /app/.cache/huggingface /app/models /app/logs && \
+    chown -R modeluser:modeluser /app
+
+# Switch to non-root user
+USER modeluser
+
+# Update PATH
+ENV PATH=/home/modeluser/.local/bin:$PATH
+
+# Expose port
+EXPOSE 8002
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8002/health').read()" || exit 1
+
+# Run model serving API
+CMD ["python", "-m", "uvicorn", "src.serving.serving_api:app", "--host", "0.0.0.0", "--port", "8002", "--workers", "2"]

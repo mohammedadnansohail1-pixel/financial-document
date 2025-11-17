@@ -1,0 +1,423 @@
+# Horizontal Scaling Configuration for Kubernetes
+# Production-ready auto-scaling with load balancing
+
+---
+# Namespace for production deployment
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: finrag
+  labels:
+    name: finrag
+    environment: production
+    istio-injection: enabled  # Enable Istio service mesh
+
+---
+# HorizontalPodAutoscaler for API Service
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: finrag-api-hpa
+  namespace: finrag
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: finrag-api
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+    # CPU-based scaling
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    # Memory-based scaling
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+    # Custom metric: Request rate
+    - type: Pods
+      pods:
+        metric:
+          name: http_requests_per_second
+        target:
+          type: AverageValue
+          averageValue: "100"
+    # Custom metric: Query latency
+    - type: Pods
+      pods:
+        metric:
+          name: query_latency_p95
+        target:
+          type: AverageValue
+          averageValue: "500"  # 500ms
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300  # Wait 5 minutes before scaling down
+      policies:
+        - type: Percent
+          value: 50  # Scale down max 50% at a time
+          periodSeconds: 60
+        - type: Pods
+          value: 2  # Scale down max 2 pods at a time
+          periodSeconds: 60
+      selectPolicy: Min  # Choose policy that scales down slowest
+    scaleUp:
+      stabilizationWindowSeconds: 0  # Scale up immediately
+      policies:
+        - type: Percent
+          value: 100  # Scale up max 100% at a time
+          periodSeconds: 30
+        - type: Pods
+          value: 4  # Scale up max 4 pods at a time
+          periodSeconds: 30
+      selectPolicy: Max  # Choose policy that scales up fastest
+
+---
+# HorizontalPodAutoscaler for Document Processor
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: finrag-processor-hpa
+  namespace: finrag
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: finrag-document-processor
+  minReplicas: 2
+  maxReplicas: 15
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 75
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 85
+    - type: Pods
+      pods:
+        metric:
+          name: processing_queue_depth
+        target:
+          type: AverageValue
+          averageValue: "100"
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Pods
+          value: 3
+          periodSeconds: 30
+
+---
+# HorizontalPodAutoscaler for RAG Retrieval
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: finrag-rag-hpa
+  namespace: finrag
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: finrag-rag-engine
+  minReplicas: 3
+  maxReplicas: 12
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75
+    - type: Pods
+      pods:
+        metric:
+          name: retrieval_latency_p95
+        target:
+          type: AverageValue
+          averageValue: "200"  # 200ms
+
+---
+# Vertical Pod Autoscaler for Databases (optional)
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: weaviate-vpa
+  namespace: finrag
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: weaviate
+  updatePolicy:
+    updateMode: "Auto"  # Or "Recreate" or "Initial"
+  resourcePolicy:
+    containerPolicies:
+      - containerName: weaviate
+        minAllowed:
+          cpu: 1000m
+          memory: 4Gi
+        maxAllowed:
+          cpu: 8000m
+          memory: 32Gi
+        controlledResources: ["cpu", "memory"]
+
+---
+# PodDisruptionBudget for API (high availability)
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: finrag-api-pdb
+  namespace: finrag
+spec:
+  minAvailable: 2  # Always keep at least 2 pods running
+  selector:
+    matchLabels:
+      app: finrag-api
+
+---
+# PodDisruptionBudget for Databases
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: finrag-database-pdb
+  namespace: finrag
+spec:
+  maxUnavailable: 1  # Max 1 database pod down at a time
+  selector:
+    matchLabels:
+      component: database
+
+---
+# Service with Session Affinity
+apiVersion: v1
+kind: Service
+metadata:
+  name: finrag-api
+  namespace: finrag
+  labels:
+    app: finrag-api
+spec:
+  type: ClusterIP
+  selector:
+    app: finrag-api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+  sessionAffinity: ClientIP  # Sticky sessions for consistent routing
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800  # 3 hours
+
+---
+# Istio VirtualService for Advanced Traffic Management
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: finrag-api-route
+  namespace: finrag
+spec:
+  hosts:
+    - finrag-api.finrag.svc.cluster.local
+    - api.finrag.example.com
+  http:
+    # Canary deployment (10% to new version)
+    - match:
+        - headers:
+            canary:
+              exact: "true"
+      route:
+        - destination:
+            host: finrag-api
+            subset: v2
+          weight: 100
+    # Regular traffic routing
+    - route:
+        - destination:
+            host: finrag-api
+            subset: v1
+          weight: 90
+        - destination:
+            host: finrag-api
+            subset: v2
+          weight: 10
+      timeout: 30s
+      retries:
+        attempts: 3
+        perTryTimeout: 10s
+        retryOn: 5xx,reset,connect-failure,refused-stream
+
+---
+# Istio DestinationRule for Load Balancing and Circuit Breaking
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: finrag-api-destination
+  namespace: finrag
+spec:
+  host: finrag-api.finrag.svc.cluster.local
+  trafficPolicy:
+    loadBalancer:
+      consistentHash:
+        httpHeaderName: X-User-ID  # Hash-based load balancing
+    connectionPool:
+      tcp:
+        maxConnections: 1000
+      http:
+        http1MaxPendingRequests: 100
+        http2MaxRequests: 1000
+        maxRequestsPerConnection: 10
+    outlierDetection:
+      consecutiveErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+      minHealthPercent: 50
+  subsets:
+    - name: v1
+      labels:
+        version: v1
+    - name: v2
+      labels:
+        version: v2
+
+---
+# RateLimitConfig (Envoy/Istio)
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: finrag-rate-limit
+  namespace: finrag
+spec:
+  workloadSelector:
+    labels:
+      app: finrag-api
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: SIDECAR_INBOUND
+        listener:
+          filterChain:
+            filter:
+              name: "envoy.filters.network.http_connection_manager"
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.local_ratelimit
+          typed_config:
+            "@type": type.googleapis.com/udpa.type.v1.TypedStruct
+            type_url: type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+            value:
+              stat_prefix: http_local_rate_limiter
+              token_bucket:
+                max_tokens: 100
+                tokens_per_fill: 100
+                fill_interval: 60s  # 100 requests per minute
+              filter_enabled:
+                runtime_key: local_rate_limit_enabled
+                default_value:
+                  numerator: 100
+                  denominator: HUNDRED
+
+---
+# Cluster Autoscaler Configuration (for node-level scaling)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-autoscaler-config
+  namespace: kube-system
+data:
+  min-nodes: "3"
+  max-nodes: "50"
+  scale-down-delay-after-add: "10m"
+  scale-down-unneeded-time: "10m"
+  skip-nodes-with-local-storage: "false"
+  skip-nodes-with-system-pods: "false"
+
+---
+# KEDA ScaledObject for Event-Driven Autoscaling (Kafka-based)
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: finrag-kafka-scaler
+  namespace: finrag
+spec:
+  scaleTargetRef:
+    name: finrag-document-processor
+  pollingInterval: 30
+  cooldownPeriod: 300
+  minReplicaCount: 2
+  maxReplicaCount: 20
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka:9092
+        consumerGroup: finrag-processors
+        topic: document-processing
+        lagThreshold: "100"
+        offsetResetPolicy: latest
+
+---
+# Ingress with Load Balancing Annotations
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: finrag-ingress
+  namespace: finrag
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/rate-limit: "100"  # 100 req/s
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-connections: "10"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+    - hosts:
+        - api.finrag.example.com
+      secretName: finrag-tls
+  rules:
+    - host: api.finrag.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: finrag-api
+                port:
+                  number: 8000

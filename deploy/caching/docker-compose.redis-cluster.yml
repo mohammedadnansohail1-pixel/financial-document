@@ -1,0 +1,162 @@
+# Docker Compose for Redis Cluster Testing
+# Run Redis Cluster locally for distributed caching
+
+version: '3.8'
+
+services:
+  # Redis Node 1
+  redis-node-1:
+    image: redis:7-alpine
+    container_name: redis-cluster-node-1
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports:
+      - "6379:6379"
+      - "16379:16379"
+    environment:
+      - CLUSTER_IP=redis-node-1
+    volumes:
+      - ./redis-cluster.conf:/usr/local/etc/redis/redis.conf
+      - redis-node-1-data:/data
+    networks:
+      redis-cluster-net:
+        ipv4_address: 172.32.0.11
+
+  # Redis Node 2
+  redis-node-2:
+    image: redis:7-alpine
+    container_name: redis-cluster-node-2
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports:
+      - "6380:6379"
+      - "16380:16379"
+    environment:
+      - CLUSTER_IP=redis-node-2
+    volumes:
+      - ./redis-cluster.conf:/usr/local/etc/redis/redis.conf
+      - redis-node-2-data:/data
+    networks:
+      redis-cluster-net:
+        ipv4_address: 172.32.0.12
+
+  # Redis Node 3
+  redis-node-3:
+    image: redis:7-alpine
+    container_name: redis-cluster-node-3
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports:
+      - "6381:6379"
+      - "16381:16379"
+    environment:
+      - CLUSTER_IP=redis-node-3
+    volumes:
+      - ./redis-cluster.conf:/usr/local/etc/redis/redis.conf
+      - redis-node-3-data:/data
+    networks:
+      redis-cluster-net:
+        ipv4_address: 172.32.0.13
+
+  # Redis Node 4
+  redis-node-4:
+    image: redis:7-alpine
+    container_name: redis-cluster-node-4
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports:
+      - "6382:6379"
+      - "16382:16379"
+    environment:
+      - CLUSTER_IP=redis-node-4
+    volumes:
+      - ./redis-cluster.conf:/usr/local/etc/redis/redis.conf
+      - redis-node-4-data:/data
+    networks:
+      redis-cluster-net:
+        ipv4_address: 172.32.0.14
+
+  # Redis Node 5
+  redis-node-5:
+    image: redis:7-alpine
+    container_name: redis-cluster-node-5
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports:
+      - "6383:6379"
+      - "16383:16379"
+    environment:
+      - CLUSTER_IP=redis-node-5
+    volumes:
+      - ./redis-cluster.conf:/usr/local/etc/redis/redis.conf
+      - redis-node-5-data:/data
+    networks:
+      redis-cluster-net:
+        ipv4_address: 172.32.0.15
+
+  # Redis Node 6
+  redis-node-6:
+    image: redis:7-alpine
+    container_name: redis-cluster-node-6
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports:
+      - "6384:6379"
+      - "16384:16379"
+    environment:
+      - CLUSTER_IP=redis-node-6
+    volumes:
+      - ./redis-cluster.conf:/usr/local/etc/redis/redis.conf
+      - redis-node-6-data:/data
+    networks:
+      redis-cluster-net:
+        ipv4_address: 172.32.0.16
+
+  # Cluster Initializer
+  redis-cluster-init:
+    image: redis:7-alpine
+    container_name: redis-cluster-init
+    depends_on:
+      - redis-node-1
+      - redis-node-2
+      - redis-node-3
+      - redis-node-4
+      - redis-node-5
+      - redis-node-6
+    command: >
+      sh -c '
+        sleep 10 &&
+        redis-cli --cluster create
+          redis-node-1:6379
+          redis-node-2:6379
+          redis-node-3:6379
+          redis-node-4:6379
+          redis-node-5:6379
+          redis-node-6:6379
+          --cluster-replicas 1
+          --cluster-yes
+      '
+    networks:
+      - redis-cluster-net
+
+  # Redis Commander (Web UI)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: redis-commander
+    environment:
+      - REDIS_HOSTS=cluster:redis-node-1:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis-node-1
+    networks:
+      - redis-cluster-net
+
+networks:
+  redis-cluster-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.32.0.0/16
+
+volumes:
+  redis-node-1-data:
+  redis-node-2-data:
+  redis-node-3-data:
+  redis-node-4-data:
+  redis-node-5-data:
+  redis-node-6-data:
